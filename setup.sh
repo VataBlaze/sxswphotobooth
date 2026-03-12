@@ -163,17 +163,28 @@ if [ -d "$REPO_DIR/plugins/breathing_session" ]; then
 fi
 
 # ------------------------------------------------------------------
-# 8. Install photobooth-app
+# 8. Install photobooth-app from PyPI
 # ------------------------------------------------------------------
-echo "[8/8] Installing photobooth-app via pipx..."
+echo "[8/10] Installing photobooth-app via pipx..."
 
-# If installing from a local clone of the repo:
-if [ -f "$REPO_DIR/pyproject.toml" ]; then
-  pipx install --system-site-packages "$REPO_DIR" --pip-args='--prefer-binary'
-# Otherwise install from PyPI as fallback:
-else
-  echo "  No pyproject.toml found in repo root. Installing from PyPI..."
-  pipx install --system-site-packages photobooth-app --pip-args='--prefer-binary'
+# This is a standalone customization repo — the photobooth-app is
+# installed from PyPI as an independent package.
+pipx install --system-site-packages photobooth-app --pip-args='--prefer-binary'
+
+# ------------------------------------------------------------------
+# 9. Patch the frontpage to include the BREATHE ₿ button
+# ------------------------------------------------------------------
+echo "[9/10] Patching frontpage for BREATHE ₿ button..."
+if [ -f "$REPO_DIR/scripts/patch-breathe-button.sh" ]; then
+  bash "$REPO_DIR/scripts/patch-breathe-button.sh" || echo "  (Patch will be applied after first start)"
+fi
+
+# ------------------------------------------------------------------
+# 10. Generate the frame overlay PNG
+# ------------------------------------------------------------------
+echo "[10/10] Generating frame overlay..."
+if [ -f "$REPO_DIR/scripts/generate-frame.py" ]; then
+  python3 "$REPO_DIR/scripts/generate-frame.py" || echo "  (Frame generation skipped — run manually later)"
 fi
 
 # ------------------------------------------------------------------
@@ -193,13 +204,16 @@ echo "  2. Start the photobooth for first-time configuration:"
 echo "       cd ~/photobooth-data && photobooth"
 echo ""
 echo "  3. Open http://localhost:8000 in a browser."
-echo "     Go to Admin Center to configure your camera."
+echo "     Go to Admin Center → CONFIGURATION → Camera."
+echo "     Select your camera backend and resolution."
 echo ""
-echo "  4. Set up your printer:"
-echo "       See printer-setup.md in the repo root."
+echo "  4. Run the hardware diagnostic to verify camera + printer:"
+echo "       bash $REPO_DIR/scripts/diagnose-hardware.sh"
 echo ""
-echo "  5. Deploy as a kiosk service:"
-echo "       cd $REPO_DIR && bash deploy/install-service.sh"
+echo "  5. Set up your printer (see printer-setup.md)."
 echo ""
-echo "  6. Reboot and enjoy your Vaporwave ₿ Photobooth!"
+echo "  6. Deploy as a kiosk service:"
+echo "       bash $REPO_DIR/deploy/install-service.sh"
+echo ""
+echo "  7. Reboot and enjoy your Vaporwave ₿ Photobooth!"
 echo ""
