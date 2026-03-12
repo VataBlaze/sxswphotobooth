@@ -1,0 +1,16 @@
+[Unit]
+Description=Vaporwave ₿ Photobooth (photobooth-app)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/photobooth-data/
+ExecStart=%h/.local/bin/photobooth
+# Fallback if pipx installs to a different path:
+# ExecStart=/usr/bin/python3 -O -m photobooth
+Restart=on-failure
+RestartSec=5
+Environment=DISPLAY=:0
+
+[Install]
+WantedBy=default.target

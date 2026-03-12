@@ -1,52 +1,99 @@
-<h1 align="center"><img src="https://raw.githubusercontent.com/photobooth-app/photobooth-app/main/assets/logo/logo-text-blue-transparent.png" alt="photobooth app logo" /></h1>
+# SXSW Vaporwave ₿ Photobooth
 
-Welcome to your brand-new open-source photobooth-app! Written in Python 🐍, coming along with a modern Vue3 frontend.
+A DIY photobooth built on [photobooth-app](https://github.com/photobooth-app/photobooth-app) (v8.7.0) with a vaporwave + Bitcoin visual identity and a custom **Breathing Session** feature (before-photo → guided breathwork → after-photo).
 
-[![PyPI](https://img.shields.io/pypi/v/photobooth-app)](https://pypi.org/project/photobooth-app/)
-[![ruff](https://github.com/photobooth-app/photobooth-app/actions/workflows/ruff.yml/badge.svg)](https://github.com/photobooth-app/photobooth-app/actions/workflows/ruff.yml)
-[![pytest](https://github.com/photobooth-app/photobooth-app/actions/workflows/pytests.yml/badge.svg)](https://github.com/photobooth-app/photobooth-app/actions/workflows/pytests.yml)
-[![codecov](https://codecov.io/gh/photobooth-app/photobooth-app/branch/main/graph/badge.svg?token=SBB5DGX17V)](https://codecov.io/gh/photobooth-app/photobooth-app)
-[![crowdin](https://badges.crowdin.net/photobooth-app/localized.svg)](https://crowdin.com/project/photobooth-app)
+## Hardware
 
-**[Installation](https://photobooth-app.org/setup/installation/)** - **[Documentation](https://photobooth-app.org/)** - **[PyPI package](https://pypi.org/project/photobooth-app/)** - **[3d printed box](https://photobooth-app.org/photobox3dprint/)**
+- **Raspberry Pi 5** (64-bit Raspberry Pi OS — Bookworm or Trixie)
+- Touchscreen monitor (min 1024×600)
+- Camera — Pi Camera Module, DSLR (gphoto2), or USB webcam
+- Dye-sublimation printer (DNP DS-RX1HS, Canon Selphy, Mitsubishi CP, etc.)
 
-## 😍 Features
+## Quick Start
 
-📷 Capture stills, animated gif, collages, 🪃 boomerangs and 3d wigglegrams!  
-🫶 Supports DSLR, Raspberry Pi cameras and webcameras  
-🎉 Live preview during countdown and on the home screen  
-🛫 Optimized for speed, highly response UI  
-🫶 Combine multiple cameras, dedicate one for high quality stills and another one for the livestream  
-💡 Integrates with WLED to signal countdown using LED rings  
-🤝 Linux, Raspberry Pi and Windows platforms supported  
-🔓 Open-source, non-restrictive MIT license  
+```bash
+# 1. Clone this repo
+git clone https://github.com/VataBlaze/sxswphotobooth.git
+cd sxswphotobooth
 
-[![photobooth-app screenshot of the frontpage](https://raw.githubusercontent.com/photobooth-app/photobooth-app/main/assets/screenshots/frontpage.png)](https://photobooth-app.org/screenshots/)
+# 2. Run the setup script (installs deps, fonts, photobooth-app)
+chmod +x setup.sh
+./setup.sh
 
-[Find more screenshots in the documentation](https://photobooth-app.org/screenshots/)
+# 3. Start the photobooth for first-time configuration
+cd ~/photobooth-data
+photobooth
+# Open http://localhost:8000 → Admin Center → configure your camera
 
-## 🔧 Build your own
+# 4. Set up your printer (see printer-setup.md)
 
-Following resources are helpful to start building your own photobooth:
+# 5. Deploy as a boot service with kiosk mode
+cd /path/to/sxswphotobooth
+chmod +x deploy/*.sh
+bash deploy/install-service.sh
 
-- [Requirements](https://photobooth-app.org/setup/installation/#prerequisites)
-- [Installation instructions](https://photobooth-app.org/setup/installation/)
-- [Camera specific setup](https://photobooth-app.org/setup/camera_setup/)
+# 6. Reboot — the photobooth launches automatically
+sudo reboot
+```
 
-You need inspiration first, have a look what others did:
+## What's Included
 
-- [3d-printed reference photobooth-box](https://photobooth-app.org/photobox3dprint/)
-- [Example projects](https://photobooth-app.org/projects/)
-- [Find screenshots in the documentation](https://photobooth-app.org/screenshots)
+| File / Directory | Purpose |
+|---|---|
+| `setup.sh` | One-shot system setup for a fresh Pi OS install |
+| `userdata/private.css` | Vaporwave ₿ theme (neon gradients, pixel fonts, scanlines) |
+| `userdata/breathing.html` | Self-contained Breathing Session page |
+| `plugins/breathing_session/` | Server-side plugin for session state tracking |
+| `deploy/` | systemd service, kiosk autostart, install script |
+| `printer-setup.md` | Printer configuration guide (CUPS + lp commands) |
 
-### ©️ License
+## Theme
 
-The software is licensed under the MIT license.
+The visual identity fuses **vaporwave** aesthetics (neon pink/cyan/purple, wireframe grids, palm silhouettes, CRT scanlines) with **Bitcoin** motifs (₿ symbol, orange #F7931A, Lightning bolt, "STACK SATS").
 
-### 🎉 Donation
+Custom fonts (all SIL Open Font License, self-hosted):
+- **Press Start 2P** — headings and buttons
+- **VT323** — body and status text
+- **Monoton** — countdown display
+- **Space Mono** — code / secondary text
 
-If you like my work and like to keep me motivated you can sponsor me:
+## Breathing Session
 
-[![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.com/donate/?hosted_button_id=8255Y566TBNEC)
+A before/after breathwork experience:
 
-Or help [translate the software in your language](https://github.com/photobooth-app/photobooth-app/blob/main/CONTRIBUTING.md#help-translate-the-app).
+1. Tap **BREATHE ₿** on the main screen
+2. A "before" photo is captured automatically
+3. A 4-minute guided breathing session plays (4s inhale → 4s hold → 6s exhale → 2s pause)
+4. An "after" photo is captured at the end
+5. Both photos are displayed side-by-side for review and printing
+
+The session page lives at `http://localhost:8000/userdata/breathing.html` and accepts URL parameters:
+- `?duration=300` — session length in seconds (default 240)
+- `?pattern=4-4-6-2` — inhale-hold-exhale-pause in seconds
+- `?title=BREATHE%20₿` — custom title text
+
+## Configuration
+
+All photobooth-app settings are managed via the **Admin Center** at `http://localhost:8000`. Key areas:
+
+- **Camera**: Admin Center → Configuration → Camera
+- **Printer**: Admin Center → Configuration → Share (see [printer-setup.md](printer-setup.md))
+- **Theme**: Edit `~/photobooth-data/userdata/private.css`
+- **Frame overlay**: Place PNGs in `~/photobooth-data/userdata/frames/`
+
+## References
+
+- Upstream project: <https://github.com/photobooth-app/photobooth-app>
+- Documentation: <https://photobooth-app.org/>
+- Installation guide: <https://photobooth-app.org/setup/installation/>
+- Camera setup: <https://photobooth-app.org/configuration/camera_setup/>
+- Theme customization: <https://photobooth-app.org/reference/customizetheme/>
+- Plugin reference: <https://photobooth-app.org/reference/plugins/>
+- REST API (Swagger): `http://localhost:8000/api/doc`
+- Printer examples: <https://photobooth-app.org/extras/printerexample/>
+
+## License
+
+This project is based on [photobooth-app](https://github.com/photobooth-app/photobooth-app), which is released under the **MIT License**. All modifications in this repository are also released under the MIT License.
+
+The fonts used (Press Start 2P, VT323, Monoton, Space Mono) are licensed under the **SIL Open Font License**.
