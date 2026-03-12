@@ -4,11 +4,14 @@
 #
 # Works on:
 #   - Raspberry Pi 4/5 (64-bit Raspberry Pi OS Bookworm/Trixie)
-#   - Any Linux laptop/desktop (Ubuntu, Debian, Fedora, etc.)
+#   - Ubuntu 22.04 / 24.04 laptop/desktop
+#   - Debian 12+ laptop/desktop
 #
 # Usage:  chmod +x setup.sh && ./setup.sh
 # ============================================================================
-set -euo pipefail
+set -uo pipefail
+# NOTE: we use set -u (undefined vars are errors) but NOT set -e
+# so that individual apt/pip failures don't kill the whole script.
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATA_DIR="$HOME/photobooth-data"
@@ -23,6 +26,12 @@ if grep -qi "raspberry" /proc/device-tree/model 2>/dev/null || \
   IS_PI=true
 fi
 
+# Detect Ubuntu vs Debian/Pi OS
+IS_UBUNTU=false
+if grep -qi "ubuntu" /etc/os-release 2>/dev/null; then
+  IS_UBUNTU=true
+fi
+
 echo ""
 echo "  ╔══════════════════════════════════════════════════╗"
 echo "  ║   VAPORWAVE ₿ PHOTOBOOTH — SETUP                ║"
@@ -30,61 +39,113 @@ echo "  ╚═══════════════════════
 echo ""
 if [ "$IS_PI" = true ]; then
   echo "  Platform: Raspberry Pi"
+elif [ "$IS_UBUNTU" = true ]; then
+  echo "  Platform: Ubuntu"
 else
-  echo "  Platform: Linux laptop/desktop"
+  echo "  Platform: Linux (Debian-based)"
 fi
 echo "  Repo:     $REPO_DIR"
 echo "  Data:     $DATA_DIR"
 echo ""
 
 # ------------------------------------------------------------------
-# 1. System update + dependencies
+# 1. System update
 # ------------------------------------------------------------------
-echo "[1/9] Installing system dependencies..."
+echo "[1/9] Updating package lists..."
 sudo apt update
 
-PACKAGES=(
-  ffmpeg libturbojpeg0 libgl1 fonts-noto-color-emoji
-  libexif12 libltdl7 python3-dev pipx
-  cups cups-client printer-driver-gutenprint
-  curl
-)
+# ------------------------------------------------------------------
+# 2. Install dependencies (split into groups so one failure doesn't
+#    block the rest)
+# ------------------------------------------------------------------
+echo "[2/9] Installing system dependencies..."
 
-# Pi-specific packages
+# --- Group A: Core (required) ---
+echo "  Installing core packages..."
+sudo apt -y install \
+  python3-dev python3-pip python3-venv \
+  ffmpeg libgl1 curl git \
+  fonts-noto-color-emoji
+
+# --- Group B: pipx (critical — needed to install photobooth-app) ---
+echo "  Installing pipx..."
+if ! command -v pipx &>/dev/null; then
+  # Try apt first
+  if sudo apt -y install pipx 2>/dev/null; then
+    echo "  pipx installed via apt."
+  else
+    # Fallback: install pipx via pip
+    echo "  apt pipx not available, installing via pip..."
+    python3 -m pip install --user pipx --break-system-packages 2>/dev/null || \
+    python3 -m pip install --user pipx 2>/dev/null || {
+      echo "  ERROR: Could not install pipx. Install manually:"
+      echo "    sudo apt install pipx"
+      echo "    OR: python3 -m pip install --user pipx"
+      exit 1
+    }
+  fi
+fi
+
+# --- Group C: libjpeg-turbo (package name varies by distro) ---
+echo "  Installing libjpeg-turbo..."
+# Try all known package names — one of them will work
+sudo apt -y install libturbojpeg0 2>/dev/null || \
+sudo apt -y install libturbojpeg0-dev 2>/dev/null || \
+sudo apt -y install libjpeg-turbo8 2>/dev/null || \
+sudo apt -y install libjpeg-turbo8-dev 2>/dev/null || \
+sudo apt -y install libjpeg62-turbo 2>/dev/null || \
+echo "  (libjpeg-turbo: no matching package found — may already be installed)"
+
+# --- Group D: Printing ---
+echo "  Installing printing packages..."
+sudo apt -y install cups cups-client printer-driver-gutenprint 2>/dev/null || \
+echo "  (Some printing packages unavailable — install manually if needed)"
+
+# --- Group E: Camera + video tools ---
+echo "  Installing camera/video tools..."
+sudo apt -y install v4l-utils 2>/dev/null || true
+
 if [ "$IS_PI" = true ]; then
-  PACKAGES+=(libgphoto2-dev libgphoto2-6 libgphoto2-port12)
+  echo "  Installing Pi camera packages..."
+  sudo apt -y install libgphoto2-dev libgphoto2-6 libgphoto2-port12 2>/dev/null || true
+  sudo apt -y install libexif12 libltdl7 2>/dev/null || true
 fi
 
-# Webcam tools (useful on both laptop and Pi)
-PACKAGES+=(v4l-utils)
+# --- Group F: Font conversion tools ---
+echo "  Installing font tools..."
+sudo apt -y install woff2 2>/dev/null || true
+# fonttools via pip (needed for woff2 conversion fallback)
+pip install --break-system-packages brotli fonttools 2>/dev/null || \
+python3 -m pip install --user brotli fonttools 2>/dev/null || true
 
-# woff2 conversion tools
-PACKAGES+=(fonttools woff2)
+# --- Group G: Pillow for frame generation ---
+echo "  Installing Pillow..."
+pip install --break-system-packages Pillow 2>/dev/null || \
+python3 -m pip install --user Pillow 2>/dev/null || true
 
-# Chromium (name varies by distro)
-if apt-cache show chromium-browser &>/dev/null 2>&1; then
-  PACKAGES+=(chromium-browser)
-elif apt-cache show chromium &>/dev/null 2>&1; then
-  PACKAGES+=(chromium)
-fi
-
-sudo apt -y install "${PACKAGES[@]}" || {
-  echo "  Some packages may not be available on your distro."
-  echo "  Continuing with what's installed..."
-}
+echo "  Dependencies installed."
+echo ""
 
 # ------------------------------------------------------------------
-# 2. pipx ensurepath
+# 3. pipx ensurepath
 # ------------------------------------------------------------------
-echo "[2/9] Configuring pipx..."
-pipx ensurepath
+echo "[3/9] Configuring pipx PATH..."
+# Find pipx wherever it landed
 export PATH="$HOME/.local/bin:$PATH"
+if command -v pipx &>/dev/null; then
+  pipx ensurepath
+  echo "  pipx is at: $(which pipx)"
+else
+  echo "  ERROR: pipx still not found after installation."
+  echo "  Try opening a new terminal and re-running this script."
+  exit 1
+fi
 
 # ------------------------------------------------------------------
-# 3. WiFi power-save fix (Pi only)
+# 4. WiFi power-save fix (Pi only)
 # ------------------------------------------------------------------
 if [ "$IS_PI" = true ]; then
-  echo "[3/9] Disabling WiFi power-save (Pi only)..."
+  echo "[4/9] Disabling WiFi power-save (Pi only)..."
   RCLOCAL="/etc/rc.local"
   WIFI_CMD="iw dev wlan0 set power_save off"
   if [ ! -f "$RCLOCAL" ]; then
@@ -98,13 +159,13 @@ if [ "$IS_PI" = true ]; then
     fi
   fi
 else
-  echo "[3/9] Skipping WiFi power-save fix (not a Pi)."
+  echo "[4/9] Skipping WiFi fix (not a Pi)."
 fi
 
 # ------------------------------------------------------------------
-# 4. Create ALL data directories
+# 5. Create ALL data directories
 # ------------------------------------------------------------------
-echo "[4/9] Creating photobooth data directories..."
+echo "[5/9] Creating data directories..."
 mkdir -p "$DATA_DIR"
 mkdir -p "$DATA_DIR/userdata/fonts"
 mkdir -p "$DATA_DIR/userdata/frames"
@@ -112,13 +173,12 @@ mkdir -p "$DATA_DIR/plugins/breathing_session"
 mkdir -p "$DATA_DIR/log"
 mkdir -p "$DATA_DIR/config"
 mkdir -p "$DATA_DIR/media"
-echo "  Created: $DATA_DIR and all subdirectories."
+echo "  Created: $DATA_DIR/"
 
 # ------------------------------------------------------------------
-# 5. Download and convert fonts
+# 6. Download and convert fonts
 # ------------------------------------------------------------------
-echo "[5/9] Downloading and converting fonts..."
-pip install --break-system-packages brotli 2>/dev/null || true
+echo "[6/9] Downloading fonts..."
 
 GOOGLE_FONTS_BASE="https://github.com/google/fonts/raw/main"
 
@@ -138,110 +198,122 @@ for filename in "${!FONT_URLS[@]}"; do
     continue
   fi
   echo "  Downloading $filename..."
-  curl -fsSL -o "$filename" "${FONT_URLS[$filename]}" || {
+  if ! curl -fsSL -o "$filename" "${FONT_URLS[$filename]}"; then
     echo "  WARNING: Failed to download $filename — skipping."
     continue
-  }
+  fi
   echo "  Converting to woff2..."
   if command -v woff2_compress &>/dev/null; then
-    woff2_compress "$filename" 2>/dev/null
-  else
+    woff2_compress "$filename" 2>/dev/null && rm -f "$filename"
+  elif python3 -c "from fontTools.ttLib import TTFont" 2>/dev/null; then
     python3 -c "
 from fontTools.ttLib import TTFont
 font = TTFont('$filename')
 font.flavor = 'woff2'
 font.save('$woff2_name')
 font.close()
-" 2>/dev/null || echo "  WARNING: woff2 conversion failed for $filename"
+" && rm -f "$filename"
+  else
+    echo "  WARNING: No woff2 converter available. Keeping .ttf file."
   fi
-  rm -f "$filename"
-  [ -f "$woff2_name" ] && echo "  Created $woff2_name"
+  [ -f "$woff2_name" ] && echo "  ✓ $woff2_name"
 done
 cd "$REPO_DIR"
 
 # ------------------------------------------------------------------
-# 6. Copy ALL customization files to data directory
+# 7. Copy ALL customization files
 # ------------------------------------------------------------------
-echo "[6/9] Copying theme, plugin, and page files..."
+echo "[7/9] Copying customization files..."
 
-# Theme CSS
-cp "$REPO_DIR/userdata/private.css" "$DATA_DIR/userdata/private.css"
-echo "  Copied private.css"
-
-# Breathing session page
-cp "$REPO_DIR/userdata/breathing.html" "$DATA_DIR/userdata/breathing.html"
-echo "  Copied breathing.html"
-
-# Button injector script
+cp "$REPO_DIR/userdata/private.css"       "$DATA_DIR/userdata/private.css"
+cp "$REPO_DIR/userdata/breathing.html"    "$DATA_DIR/userdata/breathing.html"
 cp "$REPO_DIR/userdata/breathe-button.js" "$DATA_DIR/userdata/breathe-button.js"
-echo "  Copied breathe-button.js"
 
-# Plugin files
-cp "$REPO_DIR/plugins/breathing_session/__init__.py"          "$DATA_DIR/plugins/breathing_session/__init__.py"
-cp "$REPO_DIR/plugins/breathing_session/breathing_session.py"  "$DATA_DIR/plugins/breathing_session/breathing_session.py"
-cp "$REPO_DIR/plugins/breathing_session/config.py"             "$DATA_DIR/plugins/breathing_session/config.py"
-echo "  Copied breathing_session plugin"
+cp "$REPO_DIR/plugins/breathing_session/__init__.py"          "$DATA_DIR/plugins/breathing_session/"
+cp "$REPO_DIR/plugins/breathing_session/breathing_session.py" "$DATA_DIR/plugins/breathing_session/"
+cp "$REPO_DIR/plugins/breathing_session/config.py"            "$DATA_DIR/plugins/breathing_session/"
 
-# Frame overlay (if exists — generated in step 8)
 if [ -f "$REPO_DIR/userdata/frames/vaporwave-btc-frame.png" ]; then
-  cp "$REPO_DIR/userdata/frames/vaporwave-btc-frame.png" "$DATA_DIR/userdata/frames/vaporwave-btc-frame.png"
-  echo "  Copied frame overlay"
+  cp "$REPO_DIR/userdata/frames/vaporwave-btc-frame.png" "$DATA_DIR/userdata/frames/"
 fi
 
+echo "  ✓ private.css"
+echo "  ✓ breathing.html"
+echo "  ✓ breathe-button.js"
+echo "  ✓ breathing_session plugin (3 files)"
+echo "  ✓ frame overlay (if present)"
+
 # ------------------------------------------------------------------
-# 7. Install photobooth-app from PyPI
+# 8. Install photobooth-app from PyPI
 # ------------------------------------------------------------------
-echo "[7/9] Installing photobooth-app via pipx..."
+echo "[8/9] Installing photobooth-app..."
 if pipx list 2>/dev/null | grep -q "photobooth-app"; then
-  echo "  photobooth-app already installed, upgrading..."
-  pipx upgrade photobooth-app --pip-args='--prefer-binary' || true
+  echo "  Already installed. Upgrading..."
+  pipx upgrade photobooth-app --pip-args='--prefer-binary' 2>/dev/null || true
 else
-  pipx install --system-site-packages photobooth-app --pip-args='--prefer-binary'
+  if [ "$IS_PI" = true ]; then
+    pipx install --system-site-packages photobooth-app --pip-args='--prefer-binary'
+  else
+    # On non-Pi, --system-site-packages may not be needed but doesn't hurt
+    pipx install --system-site-packages photobooth-app --pip-args='--prefer-binary' 2>/dev/null || \
+    pipx install photobooth-app --pip-args='--prefer-binary'
+  fi
+fi
+
+# Verify
+if command -v photobooth &>/dev/null || [ -f "$HOME/.local/bin/photobooth" ]; then
+  echo "  ✓ photobooth-app installed."
+else
+  echo "  WARNING: 'photobooth' command not found in PATH."
+  echo "  Open a new terminal and run:  which photobooth"
 fi
 
 # ------------------------------------------------------------------
-# 8. Generate frame overlay PNG
+# 9. Generate frame overlay + patch BREATHE button
 # ------------------------------------------------------------------
-echo "[8/9] Generating frame overlay..."
+echo "[9/9] Final setup steps..."
+
+# Generate frame
 if python3 "$REPO_DIR/scripts/generate-frame.py" 2>/dev/null; then
-  echo "  Frame overlay generated."
+  echo "  ✓ Frame overlay generated."
 else
-  echo "  Frame generation skipped (install Pillow: pip install Pillow --break-system-packages)"
+  echo "  Frame overlay skipped (Pillow not available — run later)."
 fi
 
-# ------------------------------------------------------------------
-# 9. Patch the installed index.html for BREATHE button
-# ------------------------------------------------------------------
-echo "[9/9] Patching frontpage for BREATHE ₿ button..."
-bash "$REPO_DIR/scripts/patch-breathe-button.sh" || {
-  echo ""
-  echo "  The patch will be applied after the first start."
-  echo "  You can re-run:  bash scripts/patch-breathe-button.sh"
+# Patch index.html
+echo ""
+bash "$REPO_DIR/scripts/patch-breathe-button.sh" 2>/dev/null || {
+  echo "  BREATHE button patch will be applied after first start."
+  echo "  Re-run later:  bash $REPO_DIR/scripts/patch-breathe-button.sh"
 }
 
 # ------------------------------------------------------------------
-# Done — platform-specific next steps
+# Done
 # ------------------------------------------------------------------
 echo ""
 echo "  ╔══════════════════════════════════════════════════╗"
 echo "  ║   SETUP COMPLETE                                ║"
 echo "  ╚══════════════════════════════════════════════════╝"
 echo ""
-echo "  STEP 1:  Open a new terminal (or run: source ~/.bashrc)"
+echo "  What to do now:"
 echo ""
-echo "  STEP 2:  Start the photobooth:"
-echo "           cd ~/photobooth-data && photobooth"
+echo "  1. Open a NEW terminal (so PATH is updated)"
 echo ""
-echo "  STEP 3:  Open http://localhost:8000 in your browser"
+echo "  2. Start the photobooth:"
+echo "       cd ~/photobooth-data && photobooth"
 echo ""
-echo "  STEP 4:  Configure your camera:"
-echo "           Admin Center → CONFIGURATION → Camera"
-echo "           (Run:  bash $REPO_DIR/scripts/diagnose-hardware.sh  for help)"
+echo "  3. Open http://localhost:8000 in your browser"
+echo ""
+echo "  4. Configure your camera:"
+echo "       Click gear icon → password 0000"
+echo "       CONFIGURATION → Camera → set Backend type"
+echo ""
+echo "  5. Need help detecting your camera?"
+echo "       bash $REPO_DIR/scripts/diagnose-hardware.sh"
 echo ""
 if [ "$IS_PI" = true ]; then
-  echo "  STEP 5:  Deploy as kiosk (Pi only, after camera works):"
-  echo "           bash $REPO_DIR/deploy/install-service.sh"
+  echo "  6. Deploy as kiosk (after camera works):"
+  echo "       bash $REPO_DIR/deploy/install-service.sh"
+  echo "       sudo reboot"
   echo ""
-  echo "  STEP 6:  sudo reboot"
 fi
-echo ""
