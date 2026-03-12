@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # ============================================================================
-# SXSW Vaporwave ₿ Photobooth — System Setup Script
-# Run on a fresh 64-bit Raspberry Pi OS (Bookworm or Trixie)
+# SXSW Vaporwave ₿ Photobooth — Setup Script
+#
+# Works on:
+#   - Raspberry Pi 4/5 (64-bit Raspberry Pi OS Bookworm/Trixie)
+#   - Any Linux laptop/desktop (Ubuntu, Debian, Fedora, etc.)
+#
 # Usage:  chmod +x setup.sh && ./setup.sh
 # ============================================================================
 set -euo pipefail
@@ -10,92 +14,110 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATA_DIR="$HOME/photobooth-data"
 FONT_DIR="$DATA_DIR/userdata/fonts"
 
+# ------------------------------------------------------------------
+# Detect platform
+# ------------------------------------------------------------------
+IS_PI=false
+if grep -qi "raspberry" /proc/device-tree/model 2>/dev/null || \
+   grep -qi "raspberry" /proc/cpuinfo 2>/dev/null; then
+  IS_PI=true
+fi
+
 echo ""
 echo "  ╔══════════════════════════════════════════════════╗"
-echo "  ║   VAPORWAVE ₿ PHOTOBOOTH — SYSTEM SETUP         ║"
+echo "  ║   VAPORWAVE ₿ PHOTOBOOTH — SETUP                ║"
 echo "  ╚══════════════════════════════════════════════════╝"
+echo ""
+if [ "$IS_PI" = true ]; then
+  echo "  Platform: Raspberry Pi"
+else
+  echo "  Platform: Linux laptop/desktop"
+fi
+echo "  Repo:     $REPO_DIR"
+echo "  Data:     $DATA_DIR"
 echo ""
 
 # ------------------------------------------------------------------
-# 1. System update
+# 1. System update + dependencies
 # ------------------------------------------------------------------
-echo "[1/8] Updating system packages..."
-sudo apt update && sudo apt -y upgrade
+echo "[1/9] Installing system dependencies..."
+sudo apt update
+
+PACKAGES=(
+  ffmpeg libturbojpeg0 libgl1 fonts-noto-color-emoji
+  libexif12 libltdl7 python3-dev pipx
+  cups cups-client printer-driver-gutenprint
+  curl
+)
+
+# Pi-specific packages
+if [ "$IS_PI" = true ]; then
+  PACKAGES+=(libgphoto2-dev libgphoto2-6 libgphoto2-port12)
+fi
+
+# Webcam tools (useful on both laptop and Pi)
+PACKAGES+=(v4l-utils)
+
+# woff2 conversion tools
+PACKAGES+=(fonttools woff2)
+
+# Chromium (name varies by distro)
+if apt-cache show chromium-browser &>/dev/null 2>&1; then
+  PACKAGES+=(chromium-browser)
+elif apt-cache show chromium &>/dev/null 2>&1; then
+  PACKAGES+=(chromium)
+fi
+
+sudo apt -y install "${PACKAGES[@]}" || {
+  echo "  Some packages may not be available on your distro."
+  echo "  Continuing with what's installed..."
+}
 
 # ------------------------------------------------------------------
-# 2. Install all system dependencies
+# 2. pipx ensurepath
 # ------------------------------------------------------------------
-echo "[2/8] Installing system dependencies..."
-sudo apt -y install \
-  ffmpeg \
-  libturbojpeg0 \
-  libgl1 \
-  libgphoto2-dev \
-  fonts-noto-color-emoji \
-  libexif12 \
-  libgphoto2-6 \
-  libgphoto2-port12 \
-  libltdl7 \
-  python3-dev \
-  pipx \
-  cups \
-  cups-client \
-  printer-driver-gutenprint \
-  fonttools \
-  woff2 \
-  chromium-browser || sudo apt -y install chromium
-
-# ------------------------------------------------------------------
-# 3. pipx ensurepath
-# ------------------------------------------------------------------
-echo "[3/8] Ensuring pipx path..."
+echo "[2/9] Configuring pipx..."
 pipx ensurepath
-
-# Reload PATH for this session
 export PATH="$HOME/.local/bin:$PATH"
 
 # ------------------------------------------------------------------
-# 4. Disable WiFi power-save (idempotent)
+# 3. WiFi power-save fix (Pi only)
 # ------------------------------------------------------------------
-echo "[4/8] Disabling WiFi power-save..."
-RCLOCAL="/etc/rc.local"
-WIFI_CMD="iw dev wlan0 set power_save off"
-
-if [ ! -f "$RCLOCAL" ]; then
-  sudo bash -c "cat > $RCLOCAL" <<'RCEOF'
-#!/bin/sh -e
-iw dev wlan0 set power_save off
-exit 0
-RCEOF
-  sudo chmod +x "$RCLOCAL"
-  echo "  Created $RCLOCAL with WiFi power-save fix."
-elif ! grep -qF "$WIFI_CMD" "$RCLOCAL"; then
-  # Insert before 'exit 0' if present, otherwise append
-  if grep -q "^exit 0" "$RCLOCAL"; then
-    sudo sed -i "/^exit 0/i $WIFI_CMD" "$RCLOCAL"
-  else
-    echo "$WIFI_CMD" | sudo tee -a "$RCLOCAL" > /dev/null
+if [ "$IS_PI" = true ]; then
+  echo "[3/9] Disabling WiFi power-save (Pi only)..."
+  RCLOCAL="/etc/rc.local"
+  WIFI_CMD="iw dev wlan0 set power_save off"
+  if [ ! -f "$RCLOCAL" ]; then
+    sudo bash -c "printf '#!/bin/sh -e\n${WIFI_CMD}\nexit 0\n' > $RCLOCAL"
+    sudo chmod +x "$RCLOCAL"
+  elif ! grep -qF "$WIFI_CMD" "$RCLOCAL"; then
+    if grep -q "^exit 0" "$RCLOCAL"; then
+      sudo sed -i "/^exit 0/i $WIFI_CMD" "$RCLOCAL"
+    else
+      echo "$WIFI_CMD" | sudo tee -a "$RCLOCAL" > /dev/null
+    fi
   fi
-  echo "  Added WiFi power-save fix to $RCLOCAL."
 else
-  echo "  WiFi power-save fix already present in $RCLOCAL."
+  echo "[3/9] Skipping WiFi power-save fix (not a Pi)."
 fi
 
 # ------------------------------------------------------------------
-# 5. Create data directory structure
+# 4. Create ALL data directories
 # ------------------------------------------------------------------
-echo "[5/8] Creating photobooth data directories..."
+echo "[4/9] Creating photobooth data directories..."
 mkdir -p "$DATA_DIR"
 mkdir -p "$DATA_DIR/userdata/fonts"
 mkdir -p "$DATA_DIR/userdata/frames"
 mkdir -p "$DATA_DIR/plugins/breathing_session"
+mkdir -p "$DATA_DIR/log"
+mkdir -p "$DATA_DIR/config"
+mkdir -p "$DATA_DIR/media"
+echo "  Created: $DATA_DIR and all subdirectories."
 
 # ------------------------------------------------------------------
-# 6. Download and convert fonts
+# 5. Download and convert fonts
 # ------------------------------------------------------------------
-echo "[6/8] Downloading and converting fonts..."
-
-# We need pip-installed fonttools with woff2 support for conversion
+echo "[5/9] Downloading and converting fonts..."
 pip install --break-system-packages brotli 2>/dev/null || true
 
 GOOGLE_FONTS_BASE="https://github.com/google/fonts/raw/main"
@@ -109,7 +131,6 @@ declare -A FONT_URLS=(
 )
 
 cd "$FONT_DIR"
-
 for filename in "${!FONT_URLS[@]}"; do
   woff2_name="${filename%.ttf}.woff2"
   if [ -f "$woff2_name" ]; then
@@ -117,103 +138,110 @@ for filename in "${!FONT_URLS[@]}"; do
     continue
   fi
   echo "  Downloading $filename..."
-  curl -fsSL -o "$filename" "${FONT_URLS[$filename]}"
-  echo "  Converting $filename to woff2..."
-  # fonttools provides pyftsubset; woff2_compress from the woff2 package
-  if command -v woff2_compress &> /dev/null; then
-    woff2_compress "$filename"
+  curl -fsSL -o "$filename" "${FONT_URLS[$filename]}" || {
+    echo "  WARNING: Failed to download $filename — skipping."
+    continue
+  }
+  echo "  Converting to woff2..."
+  if command -v woff2_compress &>/dev/null; then
+    woff2_compress "$filename" 2>/dev/null
   else
-    # Fallback: use fonttools to convert
     python3 -c "
 from fontTools.ttLib import TTFont
 font = TTFont('$filename')
 font.flavor = 'woff2'
 font.save('$woff2_name')
 font.close()
-"
+" 2>/dev/null || echo "  WARNING: woff2 conversion failed for $filename"
   fi
-  # Remove the .ttf source to save space
   rm -f "$filename"
-  echo "  Created $woff2_name"
+  [ -f "$woff2_name" ] && echo "  Created $woff2_name"
 done
-
 cd "$REPO_DIR"
 
 # ------------------------------------------------------------------
-# 7. Copy userdata files from repo into data directory
+# 6. Copy ALL customization files to data directory
 # ------------------------------------------------------------------
-echo "[7/8] Copying theme and plugin files..."
+echo "[6/9] Copying theme, plugin, and page files..."
 
-# Copy private.css
-if [ -f "$REPO_DIR/userdata/private.css" ]; then
-  cp "$REPO_DIR/userdata/private.css" "$DATA_DIR/userdata/private.css"
-  echo "  Copied private.css"
-fi
+# Theme CSS
+cp "$REPO_DIR/userdata/private.css" "$DATA_DIR/userdata/private.css"
+echo "  Copied private.css"
 
-# Copy breathing.html
-if [ -f "$REPO_DIR/userdata/breathing.html" ]; then
-  cp "$REPO_DIR/userdata/breathing.html" "$DATA_DIR/userdata/breathing.html"
-  echo "  Copied breathing.html"
-fi
+# Breathing session page
+cp "$REPO_DIR/userdata/breathing.html" "$DATA_DIR/userdata/breathing.html"
+echo "  Copied breathing.html"
 
-# Copy plugin files
-if [ -d "$REPO_DIR/plugins/breathing_session" ]; then
-  cp -r "$REPO_DIR/plugins/breathing_session/"* "$DATA_DIR/plugins/breathing_session/"
-  echo "  Copied breathing_session plugin"
-fi
+# Button injector script
+cp "$REPO_DIR/userdata/breathe-button.js" "$DATA_DIR/userdata/breathe-button.js"
+echo "  Copied breathe-button.js"
 
-# ------------------------------------------------------------------
-# 8. Install photobooth-app from PyPI
-# ------------------------------------------------------------------
-echo "[8/10] Installing photobooth-app via pipx..."
+# Plugin files
+cp "$REPO_DIR/plugins/breathing_session/__init__.py"          "$DATA_DIR/plugins/breathing_session/__init__.py"
+cp "$REPO_DIR/plugins/breathing_session/breathing_session.py"  "$DATA_DIR/plugins/breathing_session/breathing_session.py"
+cp "$REPO_DIR/plugins/breathing_session/config.py"             "$DATA_DIR/plugins/breathing_session/config.py"
+echo "  Copied breathing_session plugin"
 
-# This is a standalone customization repo — the photobooth-app is
-# installed from PyPI as an independent package.
-pipx install --system-site-packages photobooth-app --pip-args='--prefer-binary'
-
-# ------------------------------------------------------------------
-# 9. Patch the frontpage to include the BREATHE ₿ button
-# ------------------------------------------------------------------
-echo "[9/10] Patching frontpage for BREATHE ₿ button..."
-if [ -f "$REPO_DIR/scripts/patch-breathe-button.sh" ]; then
-  bash "$REPO_DIR/scripts/patch-breathe-button.sh" || echo "  (Patch will be applied after first start)"
+# Frame overlay (if exists — generated in step 8)
+if [ -f "$REPO_DIR/userdata/frames/vaporwave-btc-frame.png" ]; then
+  cp "$REPO_DIR/userdata/frames/vaporwave-btc-frame.png" "$DATA_DIR/userdata/frames/vaporwave-btc-frame.png"
+  echo "  Copied frame overlay"
 fi
 
 # ------------------------------------------------------------------
-# 10. Generate the frame overlay PNG
+# 7. Install photobooth-app from PyPI
 # ------------------------------------------------------------------
-echo "[10/10] Generating frame overlay..."
-if [ -f "$REPO_DIR/scripts/generate-frame.py" ]; then
-  python3 "$REPO_DIR/scripts/generate-frame.py" || echo "  (Frame generation skipped — run manually later)"
+echo "[7/9] Installing photobooth-app via pipx..."
+if pipx list 2>/dev/null | grep -q "photobooth-app"; then
+  echo "  photobooth-app already installed, upgrading..."
+  pipx upgrade photobooth-app --pip-args='--prefer-binary' || true
+else
+  pipx install --system-site-packages photobooth-app --pip-args='--prefer-binary'
 fi
 
 # ------------------------------------------------------------------
-# Done
+# 8. Generate frame overlay PNG
+# ------------------------------------------------------------------
+echo "[8/9] Generating frame overlay..."
+if python3 "$REPO_DIR/scripts/generate-frame.py" 2>/dev/null; then
+  echo "  Frame overlay generated."
+else
+  echo "  Frame generation skipped (install Pillow: pip install Pillow --break-system-packages)"
+fi
+
+# ------------------------------------------------------------------
+# 9. Patch the installed index.html for BREATHE button
+# ------------------------------------------------------------------
+echo "[9/9] Patching frontpage for BREATHE ₿ button..."
+bash "$REPO_DIR/scripts/patch-breathe-button.sh" || {
+  echo ""
+  echo "  The patch will be applied after the first start."
+  echo "  You can re-run:  bash scripts/patch-breathe-button.sh"
+}
+
+# ------------------------------------------------------------------
+# Done — platform-specific next steps
 # ------------------------------------------------------------------
 echo ""
 echo "  ╔══════════════════════════════════════════════════╗"
 echo "  ║   SETUP COMPLETE                                ║"
 echo "  ╚══════════════════════════════════════════════════╝"
 echo ""
-echo "  Next steps:"
+echo "  STEP 1:  Open a new terminal (or run: source ~/.bashrc)"
 echo ""
-echo "  1. Restart your terminal (or run: source ~/.bashrc)"
-echo "     so the pipx PATH update takes effect."
+echo "  STEP 2:  Start the photobooth:"
+echo "           cd ~/photobooth-data && photobooth"
 echo ""
-echo "  2. Start the photobooth for first-time configuration:"
-echo "       cd ~/photobooth-data && photobooth"
+echo "  STEP 3:  Open http://localhost:8000 in your browser"
 echo ""
-echo "  3. Open http://localhost:8000 in a browser."
-echo "     Go to Admin Center → CONFIGURATION → Camera."
-echo "     Select your camera backend and resolution."
+echo "  STEP 4:  Configure your camera:"
+echo "           Admin Center → CONFIGURATION → Camera"
+echo "           (Run:  bash $REPO_DIR/scripts/diagnose-hardware.sh  for help)"
 echo ""
-echo "  4. Run the hardware diagnostic to verify camera + printer:"
-echo "       bash $REPO_DIR/scripts/diagnose-hardware.sh"
-echo ""
-echo "  5. Set up your printer (see printer-setup.md)."
-echo ""
-echo "  6. Deploy as a kiosk service:"
-echo "       bash $REPO_DIR/deploy/install-service.sh"
-echo ""
-echo "  7. Reboot and enjoy your Vaporwave ₿ Photobooth!"
+if [ "$IS_PI" = true ]; then
+  echo "  STEP 5:  Deploy as kiosk (Pi only, after camera works):"
+  echo "           bash $REPO_DIR/deploy/install-service.sh"
+  echo ""
+  echo "  STEP 6:  sudo reboot"
+fi
 echo ""

@@ -2,12 +2,8 @@
 # ============================================================================
 # patch-breathe-button.sh
 #
-# Finds the installed photobooth-app's index.html (inside the pipx venv) and
-# injects a <script> tag that loads /userdata/breathe-button.js.
-#
-# This is idempotent — running it twice will not duplicate the tag.
-#
-# Usage:  bash scripts/patch-breathe-button.sh
+# Finds the installed photobooth-app's index.html and injects one line to
+# load the BREATHE ₿ button script. Idempotent — safe to run multiple times.
 # ============================================================================
 set -euo pipefail
 
@@ -16,58 +12,35 @@ MARKER="breathe-button.js"
 
 echo ""
 echo "  Patching photobooth-app index.html to include BREATHE ₿ button..."
-echo ""
 
 # ------------------------------------------------------------------
-# 1. Locate the installed index.html
+# 1. Find the installed index.html
 # ------------------------------------------------------------------
 INDEX_HTML=""
 
-# Method A: Search the pipx venv
+# Search pipx venv
 PIPX_VENV="$HOME/.local/share/pipx/venvs/photobooth-app"
 if [ -d "$PIPX_VENV" ]; then
-  FOUND=$(find "$PIPX_VENV" -name "index.html" -path "*/web_spa/*" 2>/dev/null | head -1)
-  if [ -n "$FOUND" ]; then
-    INDEX_HTML="$FOUND"
-  fi
+  INDEX_HTML=$(find "$PIPX_VENV" -name "index.html" -path "*web*" 2>/dev/null | head -1)
 fi
 
-# Method B: Search site-packages broadly
+# Search site-packages broadly
 if [ -z "$INDEX_HTML" ]; then
-  FOUND=$(find "$HOME/.local" /usr/lib/python3*/site-packages /usr/local/lib/python3*/site-packages \
-    -name "index.html" -path "*/photobooth*web*" 2>/dev/null | head -1)
-  if [ -n "$FOUND" ]; then
-    INDEX_HTML="$FOUND"
-  fi
-fi
-
-# Method C: Ask Python directly
-if [ -z "$INDEX_HTML" ]; then
-  FOUND=$(python3 -c "
-import importlib.util, os
-spec = importlib.util.find_spec('photobooth')
-if spec and spec.submodule_search_locations:
-    for loc in spec.submodule_search_locations:
-        for root, dirs, files in os.walk(loc):
-            if 'index.html' in files and 'web' in root:
-                print(os.path.join(root, 'index.html'))
-                break
-" 2>/dev/null | head -1)
-  if [ -n "$FOUND" ]; then
-    INDEX_HTML="$FOUND"
-  fi
+  INDEX_HTML=$(find "$HOME/.local" /usr/lib/python3* /usr/local/lib/python3* \
+    -name "index.html" -path "*photobooth*web*" 2>/dev/null | head -1) || true
 fi
 
 if [ -z "$INDEX_HTML" ]; then
-  echo "  ERROR: Could not find the photobooth-app index.html."
-  echo "  Searched:"
-  echo "    - $PIPX_VENV"
-  echo "    - ~/.local/lib/python3*/site-packages/photobooth/"
-  echo "    - Python importlib"
   echo ""
-  echo "  Try running:  find / -name 'index.html' -path '*photobooth*' 2>/dev/null"
-  echo "  Then edit the file manually, adding before </body>:"
-  echo "    $SCRIPT_TAG"
+  echo "  Could not find photobooth-app's index.html."
+  echo "  This is expected if photobooth-app hasn't been installed yet."
+  echo ""
+  echo "  After installing, re-run this script:"
+  echo "    bash scripts/patch-breathe-button.sh"
+  echo ""
+  echo "  Or find it manually:"
+  echo "    find ~/.local -name 'index.html' -path '*photobooth*' 2>/dev/null"
+  echo ""
   exit 1
 fi
 
@@ -82,26 +55,20 @@ if grep -qF "$MARKER" "$INDEX_HTML"; then
 fi
 
 # ------------------------------------------------------------------
-# 3. Backup the original
+# 3. Backup + patch
 # ------------------------------------------------------------------
 BACKUP="${INDEX_HTML}.bak.$(date +%Y%m%d%H%M%S)"
 cp "$INDEX_HTML" "$BACKUP"
-echo "  Backup created: $BACKUP"
+echo "  Backup: $BACKUP"
 
-# ------------------------------------------------------------------
-# 4. Inject the script tag before </body>
-# ------------------------------------------------------------------
-# Use sed to insert our script tag on the line before </body>
 sed -i "s|</body>|  ${SCRIPT_TAG}\n</body>|" "$INDEX_HTML"
 
-# Verify
 if grep -qF "$MARKER" "$INDEX_HTML"; then
-  echo "  Patch applied successfully."
+  echo "  Patch applied."
   echo ""
-  echo "  The BREATHE ₿ button will appear on the photobooth frontpage"
-  echo "  after restarting the app or refreshing the browser."
-  echo ""
-  echo "  Restart:  systemctl --user restart photobooth-app"
+  echo "  Restart the app to see the BREATHE ₿ button:"
+  echo "    systemctl --user restart photobooth-app"
+  echo "    (or kill and re-run: cd ~/photobooth-data && photobooth)"
 else
   echo "  ERROR: Patch did not apply. Restoring backup."
   cp "$BACKUP" "$INDEX_HTML"
