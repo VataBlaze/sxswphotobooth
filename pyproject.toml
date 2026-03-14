@@ -77,11 +77,12 @@ gpio_lights = 'photobooth.plugins.gpio_lights.gpio_lights'
 wled = 'photobooth.plugins.wled.wled'
 filter_pilgram2 = 'photobooth.plugins.filter_pilgram2.filter_pilgram2'
 synchronizer_rclone = 'photobooth.plugins.synchronizer_rclone.synchronizer_rclone'
+breathing_session = 'photobooth.plugins.breathing_session.breathing_session'
 
 
 [project.urls]
-Homepage = "https://github.com/photobooth-app/photobooth-app"
-Repository = "https://github.com/photobooth-app/photobooth-app"
+Homepage = "https://github.com/VataBlaze/sxswphotobooth"
+Repository = "https://github.com/VataBlaze/sxswphotobooth"
 Documentation = "https://photobooth-app.org"
 
 

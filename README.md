@@ -1,78 +1,86 @@
 # SXSW Vaporwave ₿ Photobooth
 
-A DIY photobooth built on [photobooth-app](https://github.com/photobooth-app/photobooth-app) with a vaporwave + Bitcoin visual identity and a custom **Breathing Session** feature.
+A customized fork of [photobooth-app](https://github.com/photobooth-app/photobooth-app) with a vaporwave + Bitcoin visual identity and a **Breathing Session** feature (before-photo → guided breathwork → after-photo).
 
-## Hardware
+## This Is the Source Code
 
-Works on any of:
-- **Raspberry Pi 5** (64-bit Raspberry Pi OS) — for deployment
-- **Any Linux laptop/desktop** (Ubuntu, Debian, etc.) — for development and testing
+This repo contains the **full photobooth-app source** — Python backend, Vue 3 frontend, plugins, everything. It is installed directly from source, not from PyPI. You can modify any file.
 
-Plus: touchscreen or monitor, USB webcam or Pi Camera, and optionally a dye-sub printer.
-
-## Architecture
-
-This is a **standalone customization repo**. It does NOT depend on the upstream photobooth-app GitHub repo. The photobooth-app is installed from PyPI as a separate package, and this repo drops theme, plugin, and config files on top of it.
-
-## Complete Setup — Step by Step
+## Setup — Step by Step
 
 ```bash
-# 1. Clone this repo
+# 1. Clone
 git clone https://github.com/VataBlaze/sxswphotobooth.git
 cd sxswphotobooth
 
-# 2. Run setup (installs everything, works on laptop or Pi)
+# 2. Run setup (installs from local source, copies theme files)
 chmod +x setup.sh
 ./setup.sh
 
-# 3. Open a new terminal so the PATH update takes effect
-#    (or run: source ~/.bashrc)
+# 3. Open a new terminal (or: source ~/.bashrc)
 
 # 4. Start the photobooth
-cd ~/photobooth-data
-photobooth
+cd ~/photobooth-data && photobooth
 
-# 5. Open http://localhost:8000 in your browser
-#    You should see the vaporwave-themed frontpage.
+# 5. Open http://localhost:8000 → gear icon → password 0000
+#    Set camera: CONFIGURATION → Camera → select your backend
 
-# 6. Configure your camera:
-#    - Click the gear icon (Admin Center, password: 0000)
-#    - Go to CONFIGURATION → Camera
-#    - Set Backend type (run the diagnostic for help):
-bash ~/sxswphotobooth/scripts/diagnose-hardware.sh
-
-# 7. (Pi only) Deploy as boot service + kiosk:
+# 6. (Pi only) Deploy as kiosk:
 bash ~/sxswphotobooth/deploy/install-service.sh
 sudo reboot
 ```
 
-## What Each File Does
+## Hardware
 
-| File | Purpose |
-|---|---|
-| `setup.sh` | **Run once.** Installs deps, fonts, photobooth-app, copies all files, patches the BREATHE button in. |
-| `userdata/private.css` | Vaporwave ₿ theme |
-| `userdata/breathing.html` | Breathing Session page (before-photo → breathwork → after-photo) |
-| `userdata/breathe-button.js` | Injects the BREATHE ₿ button on the frontpage |
-| `userdata/frames/vaporwave-btc-frame.png` | Neon frame overlay for live preview |
-| `plugins/breathing_session/` | Backend plugin with file logging |
-| `scripts/patch-breathe-button.sh` | Patches the installed index.html (called by setup.sh) |
-| `scripts/diagnose-hardware.sh` | Detects cameras + printers, prints config instructions |
-| `scripts/generate-frame.py` | Generates the frame overlay PNG (called by setup.sh) |
-| `deploy/` | systemd service + kiosk autostart (Pi deployment only) |
-| `printer-setup.md` | Printer configuration guide |
+- **Raspberry Pi 5** (64-bit Pi OS) or any **Linux laptop/desktop** (Ubuntu, Debian)
+- USB webcam, Pi Camera Module, or DSLR (gphoto2)
+- Optional: dye-sublimation printer
+
+## Project Structure
+
+```
+sxswphotobooth/
+├── src/photobooth/           ← Python backend (FastAPI, services, config)
+│   ├── plugins/
+│   │   ├── breathing_session/ ← Breathing Session plugin (logging)
+│   │   ├── commander/         ← Built-in: HTTP hooks
+│   │   ├── gpio_lights/       ← Built-in: GPIO control
+│   │   ├── wled/              ← Built-in: LED control
+│   │   └── ...
+│   ├── services/config/groups/
+│   │   └── actions.py         ← Action types (Image, Collage, etc.)
+│   └── routers/               ← API endpoints
+├── src/web/frontend/          ← Compiled Vue 3 SPA
+│   └── index.html             ← Patched to load breathe-button.js
+├── userdata/                  ← Theme + custom pages (copied to ~/photobooth-data/)
+│   ├── private.css            ← Vaporwave ₿ theme
+│   ├── breathing.html         ← Breathing Session page
+│   ├── breathe-button.js      ← Injects BREATHE button on frontpage
+│   └── frames/
+│       └── vaporwave-btc-frame.png
+├── scripts/
+│   ├── diagnose-hardware.sh   ← Camera/printer detection
+│   ├── generate-frame.py      ← Generates the frame overlay PNG
+│   └── check-install.sh       ← Diagnose setup problems
+├── deploy/                    ← systemd + kiosk (Pi only)
+├── setup.sh                   ← One-shot setup script
+├── printer-setup.md           ← Printer config guide
+└── pyproject.toml             ← Package definition + plugin entry-points
+```
+
+## Customization
+
+- **Theme**: Edit `userdata/private.css`, re-run `setup.sh` (or copy manually)
+- **Actions**: Modify `src/photobooth/services/config/groups/actions.py`
+- **Plugins**: Add to `src/photobooth/plugins/`, register in `pyproject.toml`
+- **Frontend**: Compiled Vue 3 in `src/web/frontend/` — rebuild from [photobooth-frontend](https://github.com/photobooth-app/photobooth-frontend) for major changes
 
 ## Logging
 
-Breathing session logs go to `~/photobooth-data/log/breathing_session.log`. The breathing.html page also has an on-screen log panel (tap "LOG" button, bottom-left corner).
-
-## References
-
-- Upstream: <https://github.com/photobooth-app/photobooth-app>
-- Docs: <https://photobooth-app.org/>
-- Admin Center password: `0000`
-- REST API: `http://localhost:8000/api/doc`
+- App logs: `journalctl --user -u photobooth-app -f`
+- Breathing session: `tail -f ~/photobooth-data/log/breathing_session.log`
+- On-screen: tap "LOG" button in breathing.html (bottom-left corner)
 
 ## License
 
-MIT (inherited from upstream). Fonts are SIL Open Font License.
+MIT (inherited from upstream). Fonts: SIL Open Font License.
