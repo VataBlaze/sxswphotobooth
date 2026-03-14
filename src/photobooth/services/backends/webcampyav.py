@@ -109,7 +109,7 @@ class WebcamPyavBackend(AbstractBackend):
         reformatter = VideoReformatter()
         options = {
             "video_size": f"{self._config.cam_resolution_width}x{self._config.cam_resolution_height}",
-            "input_format": "mjpeg",  # or h264 if supported is also possible but seems it has no effect (tested on windows dshow only)
+            "input_format": "yuyv422",  # or h264 if supported is also possible but seems it has no effect (tested on windows dshow only)
         }
         if self._config.cam_framerate > 0:
             # avfoundation has ntsc as default. webcams refuse to work with that framerate, so allow to set it explicit
